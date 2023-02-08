@@ -1,0 +1,7 @@
+{
+    "projectName": "BufferProtocolV2",
+    "namespace": "BufferProtocolV2.Contracts",
+    "lang": 0,
+    "autoCodeGen": true,
+    "projectPath": "../"
+}

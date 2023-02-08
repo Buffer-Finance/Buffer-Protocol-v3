@@ -1,0 +1,8 @@
+build/*
+tests/__pycache__/*
+.VSCodeCounter/*
+.env
+scripts/__pycache__/*
+flat_files/*
+settings.json
+.hypothesis

@@ -1,0 +1,27 @@
+# exclude SafeMath when calculating test coverage
+# https://eth-brownie.readthedocs.io/en/v1.10.3/config.html#exclude_paths
+reports:
+    exclude_contracts:
+        - SafeMath
+        - ERC721
+        - ERC20
+        - AccessControl
+        - TraderNFT
+        - USDC
+        - BFR
+        - Ownable
+        - AccessControl
+        - ECDSA
+
+dependencies:
+    - OpenZeppelin/openzeppelin-contracts@4.7.3
+compiler:
+    evm_version: istanbul
+    solc:
+        version: 0.8.4
+        optimizer:
+            enabled: true
+            runs: 1
+        remappings:
+            - "@openzeppelin=OpenZeppelin/openzeppelin-contracts@4.7.3"
+dotenv: .env
