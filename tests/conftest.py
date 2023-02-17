@@ -35,13 +35,16 @@ def contracts(
     ReferralStorage,
     OptionMath,
     ABDKMath64x64,
+    Whitelist,
+    MarketSetter,
 ):
 
     publisher = accounts.add()
     ibfr_contract = BFR.deploy({"from": accounts[0]})
     sfd = accounts.add()
     tokenX = USDC.deploy({"from": accounts[0]})
-
+    whitelist = Whitelist.deploy({"from": accounts[0]})
+    marketSetter = MarketSetter.deploy({"from": accounts[0]})
     binary_pool_atm = BufferBinaryPool.deploy(
         tokenX.address, 600, {"from": accounts[0]}
     )
@@ -56,6 +59,7 @@ def contracts(
         binary_pool_atm.address,
         {"from": accounts[0]},
     )
+    # binary_options_config_atm.setWhitelistStorage(whitelist, {"from": accounts[0]})
     referral_contract = ReferralStorage.deploy({"from": accounts[0]})
 
     binary_european_options_atm = BufferBinaryOptions.deploy(
@@ -98,6 +102,7 @@ def contracts(
         binary_pool_atm.address,
         {"from": accounts[0]},
     )
+    # binary_options_config_atm_2.setWhitelistStorage(whitelist, {"from": accounts[0]})
 
     binary_european_options_atm_2 = BufferBinaryOptions.deploy(
         tokenX.address,
@@ -138,6 +143,7 @@ def contracts(
         binary_pool_atm.address,
         {"from": accounts[0]},
     )
+    # binary_options_config_atm_3.setWhitelistStorage(whitelist, {"from": accounts[0]})
 
     binary_european_options_atm_3 = BufferBinaryOptions.deploy(
         tokenX.address,
@@ -183,6 +189,7 @@ def contracts(
         bfr_pool_atm.address,
         {"from": accounts[0]},
     )
+    # bfr_binary_options_config_atm.setWhitelistStorage(whitelist, {"from": accounts[0]})
 
     bfr_binary_european_options_atm = BufferBinaryOptions.deploy(
         ibfr_contract.address,
@@ -243,4 +250,5 @@ def contracts(
         "bfr_binary_european_options_atm": bfr_binary_european_options_atm,
         "publisher": publisher,
         "settlement_fee_disbursal": sfd,
+        "market_setter": marketSetter,
     }
