@@ -297,6 +297,7 @@ class BinaryOptionTesting(object):
             (0, 0, 23, 59),
         ]
         FIVE_HOURS = 5 * 3600
+        FIVE_MINUTES = 300
 
         # Only the options config owner can set the market time
         with brownie.reverts("Ownable: caller is not the owner"):
@@ -312,18 +313,18 @@ class BinaryOptionTesting(object):
         )
         # Case a : Current Window is in the left  <---(current)---(closed)---->
         self.time_travel(1, 5, 00)
-        assert self.forex_option.isInCreationWindow(300)
+        assert self.forex_option.isInCreationWindow(FIVE_MINUTES)
         assert self.forex_option.isInCreationWindow(FIVE_HOURS)
         assert not self.forex_option.isInCreationWindow(
             self.period
         )  # Shouldn't allow inter day in this case
 
         # # Case b : Current Window is partially/fully overlapping  <------(clos(ed)current)-->
-        assert not self.forex_option.isInCreationWindow(17 * 3600 + 300)
+        assert not self.forex_option.isInCreationWindow(17 * 3600 + FIVE_MINUTES)
 
         # Case c : Current Window is in the right  <------(closed)--(current)-->
         self.time_travel(1, 23, 00)
-        assert self.forex_option.isInCreationWindow(300)
+        assert self.forex_option.isInCreationWindow(FIVE_MINUTES)
         assert not self.forex_option.isInCreationWindow(
             self.period
         )  # Goes into next day's close window
@@ -333,15 +334,15 @@ class BinaryOptionTesting(object):
 
         # Case 2 Closed all day : <(closed)>
         self.time_travel(6, 0, 00)
-        assert not self.forex_option.isInCreationWindow(300)
+        assert not self.forex_option.isInCreationWindow(FIVE_MINUTES)
 
         # Case 3 Closed in starting hours : <(closed)---------->
         self.time_travel(0, 0, 00)
-        assert not self.forex_option.isInCreationWindow(300)
+        assert not self.forex_option.isInCreationWindow(FIVE_MINUTES)
         self.time_travel(0, 22, 59)
-        assert not self.forex_option.isInCreationWindow(300)
+        assert not self.forex_option.isInCreationWindow(FIVE_MINUTES)
         self.time_travel(0, 23, 00)
-        assert self.forex_option.isInCreationWindow(300)
+        assert self.forex_option.isInCreationWindow(FIVE_MINUTES)
         assert self.forex_option.isInCreationWindow(FIVE_HOURS)  # Inter day
 
         # Case 4 Closed in the end hours : <----------(closed)>
@@ -350,10 +351,10 @@ class BinaryOptionTesting(object):
             {"from": self.owner},
         )
         self.time_travel(5, 00, 00)
-        assert self.forex_option.isInCreationWindow(300)
+        assert self.forex_option.isInCreationWindow(FIVE_MINUTES)
         assert not self.forex_option.isInCreationWindow(self.period)
         self.time_travel(5, 21, 00)
-        assert not self.forex_option.isInCreationWindow(300)
+        assert not self.forex_option.isInCreationWindow(FIVE_MINUTES)
         assert not self.forex_option.isInCreationWindow(FIVE_HOURS)
 
         # Case 5 Open all day:<---------->
@@ -361,15 +362,15 @@ class BinaryOptionTesting(object):
         assert self.forex_option.isInCreationWindow(FIVE_HOURS)
 
         self.time_travel(1, 23, 54)
-        assert self.forex_option.isInCreationWindow(300)
+        assert self.forex_option.isInCreationWindow(FIVE_MINUTES)
         assert self.forex_option.isInCreationWindow(
             301
         )  # Inter day allowed since next day starting hours are open
 
         self.time_travel(2, 0, 45)
-        assert self.forex_option.isInCreationWindow(86400 - 300)
+        assert self.forex_option.isInCreationWindow(86400 - FIVE_MINUTES)
         self.time_travel(3, 0, 45)
-        assert not self.forex_option.isInCreationWindow(86400 - 300)
+        assert not self.forex_option.isInCreationWindow(86400 - FIVE_MINUTES)
 
     def verify_fake_referral_protection(self):
         self.chain.snapshot()
