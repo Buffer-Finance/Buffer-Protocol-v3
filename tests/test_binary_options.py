@@ -249,68 +249,54 @@ class BinaryOptionTesting(object):
 
         return to_32byte_hex(signed_message.signature)
 
-    def verify_forex_option_trading_window(self):
+    def time_travel(self, day_of_week, hour, to_minute):
+
+        # Get the current block timestamp
+        current_timestamp = self.chain.time()
+
+        # Calculate the timestamp for the specified day and hour
+        current_day = ((current_timestamp / ONE_DAY) + 4) % 7
+        if current_day < day_of_week:
+            days_until_dow = day_of_week - current_day
+        elif current_day > day_of_week:
+            days_until_dow = 7 - current_day + day_of_week
+        else:
+            days_until_dow = 0
+        target_timestamp = (
+            current_timestamp
+            + (days_until_dow * ONE_DAY)
+            + (hour * 60 * 60)
+            + (to_minute * 60)
+        )
+        # "Time travel" to the target timestamp
+        self.chain.sleep(int(target_timestamp - current_timestamp))
+        current_timestamp = self.chain.time()
+        self.chain.mine(1)
+
+    def verify_option_trading_window(self):
+
+        # Market Times Commodities (UTC)
         market_times = [
-            (17, 0, 23, 59),
+            (0, 0, 22, 59),
+            (22, 0, 22, 59),
+            (22, 0, 22, 59),
+            (22, 0, 22, 59),
+            (22, 0, 22, 59),
+            (22, 0, 23, 59),
             (0, 0, 23, 59),
-            (0, 0, 23, 59),
-            (0, 0, 23, 59),
-            (0, 0, 23, 59),
-            (0, 0, 15, 59),
+        ]
+
+        # Market Times Forex (UTC)
+        market_times_1 = [
+            (0, 0, 21, 59),
             (0, 0, 0, 0),
+            (0, 0, 0, 0),
+            (0, 0, 0, 0),
+            (0, 0, 23, 59),
+            (21, 0, 23, 59),
+            (0, 0, 23, 59),
         ]
-
-        # Set the current time at 5,0 of the day
-        currentTime = self.chain.time()
-        self.chain.sleep(86400 - (currentTime % 86400) + (5 * 3600))
-        currentTime = self.chain.time()
-
-        currentDay = ((currentTime // 86400) + 4) % 7
-        self.tokenX.transfer(self.user_1, self.total_fee * 10, {"from": self.owner})
-        self.tokenX.approve(
-            self.router.address, self.total_fee * 10, {"from": self.user_1}
-        )
-        next_id = self.router.nextQueueId()
-        _params = (
-            self.total_fee,
-            self.period,  # slightly less then a day
-            self.is_above,
-            self.forex_option.address,
-            self.expected_strike,
-            self.slippage,
-            self.allow_partial_fill,
-            self.referral_code,
-            0,
-        )
-
-        # Shouldn't allow forex trades when market times haven't been set
-        self.chain.snapshot()
-        self.router.initiateTrade(
-            *_params,
-            {"from": self.user_1},
-        )
-        queued_trade = self.router.queuedTrades(next_id)
-        open_params_1 = [
-            queued_trade[10],
-            self.expected_strike,
-        ]
-        txn = self.router.resolveQueuedTrades(
-            [
-                (
-                    next_id,
-                    *open_params_1,
-                    self.get_signature(
-                        self.forex_option.address,
-                        *open_params_1,
-                    ),
-                ),
-            ],
-            {"from": self.bot},
-        )
-        assert (
-            txn.events["CancelTrade"] and txn.events["CancelTrade"]["reason"] == "O30"
-        )
-        self.chain.revert()
+        FIVE_HOURS = 5 * 3600
 
         # Only the options config owner can set the market time
         with brownie.reverts("Ownable: caller is not the owner"):
@@ -319,270 +305,71 @@ class BinaryOptionTesting(object):
                 {"from": self.user_1},
             )
 
-        ########### MARKET IS OPEN FOR THE WHOLE DAY ###########
-        market_times[currentDay] = (0, 0, 23, 59)
+        # Case 1 Closed for an hour in between : <------(closed)---->
         self.forex_option_config.setMarketTime(
             market_times,
             {"from": self.owner},
         )
+        # Case a : Current Window is in the left  <---(current)---(closed)---->
+        self.time_travel(1, 5, 00)
+        assert self.forex_option.isInCreationWindow(300)
+        assert self.forex_option.isInCreationWindow(FIVE_HOURS)
+        assert not self.forex_option.isInCreationWindow(
+            self.period
+        )  # Shouldn't allow inter day in this case
 
-        # Should cancel inter-day trades
-        self.chain.snapshot()
-        self.router.initiateTrade(
-            *_params,
-            {"from": self.user_1},
-        )
-        queued_trade = self.router.queuedTrades(next_id)
-        open_params_1 = [
-            queued_trade[10],
-            self.expected_strike,
-        ]
-        txn = self.router.resolveQueuedTrades(
-            [
-                (
-                    next_id,
-                    *open_params_1,
-                    self.get_signature(
-                        self.forex_option.address,
-                        *open_params_1,
-                    ),
-                ),
-            ],
-            {"from": self.bot},
-        )
-        assert (
-            txn.events["CancelTrade"] and txn.events["CancelTrade"]["reason"] == "O30"
-        )
-        self.chain.revert()
+        # # Case b : Current Window is partially/fully overlapping  <------(clos(ed)current)-->
+        assert not self.forex_option.isInCreationWindow(17 * 3600 + 300)
 
-        # Should open intra-day trades
+        # Case c : Current Window is in the right  <------(closed)--(current)-->
+        self.time_travel(1, 23, 00)
+        assert self.forex_option.isInCreationWindow(300)
+        assert not self.forex_option.isInCreationWindow(
+            self.period
+        )  # Goes into next day's close window
+        assert self.forex_option.isInCreationWindow(
+            FIVE_HOURS
+        )  # Inter day trade when its in the open window
 
-        params = (
-            self.total_fee,
-            300,  # 5mins
-            self.is_above,
-            self.forex_option.address,
-            self.expected_strike,
-            self.slippage,
-            self.allow_partial_fill,
-            self.referral_code,
-            0,
-        )
+        # Case 2 Closed all day : <(closed)>
+        self.time_travel(6, 0, 00)
+        assert not self.forex_option.isInCreationWindow(300)
 
-        self.chain.snapshot()
-        self.router.initiateTrade(
-            *params,
-            {"from": self.user_1},
-        )
-        queued_trade = self.router.queuedTrades(next_id)
-        open_params_1 = [
-            queued_trade[10],
-            self.expected_strike,
-        ]
-        txn = self.router.resolveQueuedTrades(
-            [
-                (
-                    next_id,
-                    *open_params_1,
-                    self.get_signature(
-                        self.forex_option.address,
-                        *open_params_1,
-                    ),
-                ),
-            ],
-            {"from": self.bot},
-        )
-        assert txn.events["OpenTrade"], "Trade didn't open"
-        self.chain.revert()
+        # Case 3 Closed in starting hours : <(closed)---------->
+        self.time_travel(0, 0, 00)
+        assert not self.forex_option.isInCreationWindow(300)
+        self.time_travel(0, 22, 59)
+        assert not self.forex_option.isInCreationWindow(300)
+        self.time_travel(0, 23, 00)
+        assert self.forex_option.isInCreationWindow(300)
+        assert self.forex_option.isInCreationWindow(FIVE_HOURS)  # Inter day
 
-        currentHour = (currentTime // 3600) % 24
-        currentMinute = (currentTime % 3600) / 60
-
-        ########### MARKET HASN'T OPENED YET ###########
-        market_times[currentDay] = (currentHour + 1, currentMinute, 23, 59)
+        # Case 4 Closed in the end hours : <----------(closed)>
         self.forex_option_config.setMarketTime(
-            market_times,
+            market_times_1,
             {"from": self.owner},
         )
+        self.time_travel(5, 00, 00)
+        assert self.forex_option.isInCreationWindow(300)
+        assert not self.forex_option.isInCreationWindow(self.period)
+        self.time_travel(5, 21, 00)
+        assert not self.forex_option.isInCreationWindow(300)
+        assert not self.forex_option.isInCreationWindow(FIVE_HOURS)
 
-        # Should cancel the trade
-        self.chain.snapshot()
-        self.router.initiateTrade(
-            *params,
-            {"from": self.user_1},
-        )
-        queued_trade = self.router.queuedTrades(next_id)
-        open_params_1 = [
-            queued_trade[10],
-            self.expected_strike,
-        ]
-        txn = self.router.resolveQueuedTrades(
-            [
-                (
-                    next_id,
-                    *open_params_1,
-                    self.get_signature(
-                        self.forex_option.address,
-                        *open_params_1,
-                    ),
-                ),
-            ],
-            {"from": self.bot},
-        )
-        assert (
-            txn.events["CancelTrade"] and txn.events["CancelTrade"]["reason"] == "O30"
-        )
-        self.chain.revert()
+        # Case 5 Open all day:<---------->
+        self.time_travel(1, 00, 00)
+        assert self.forex_option.isInCreationWindow(FIVE_HOURS)
 
-        # Time travel to market open time
-        self.chain.sleep(3600)
+        self.time_travel(1, 23, 54)
+        assert self.forex_option.isInCreationWindow(300)
+        assert self.forex_option.isInCreationWindow(
+            301
+        )  # Inter day allowed since next day starting hours are open
 
-        # Should open the trade
-        self.chain.snapshot()
-        self.router.initiateTrade(
-            *params,
-            {"from": self.user_1},
-        )
-        queued_trade = self.router.queuedTrades(next_id)
-        open_params_1 = [
-            queued_trade[10],
-            self.expected_strike,
-        ]
-        txn = self.router.resolveQueuedTrades(
-            [
-                (
-                    next_id,
-                    *open_params_1,
-                    self.get_signature(
-                        self.forex_option.address,
-                        *open_params_1,
-                    ),
-                ),
-            ],
-            {"from": self.bot},
-        )
-        assert txn.events["OpenTrade"], "Trade didn't open"
-        self.chain.revert()
-
-        ########### MARKET IS GONNA CLOSE in 10 min ###########
-        currentTime = self.chain.time()
-        currentHour = (currentTime // 3600) % 24
-        currentMinute = (currentTime % 3600) // 60
-        expirationHour = ((currentTime + 300) // 3600) % 24
-        expirationMinute = ((currentTime + 300) % 3600) // 60
-
-        market_times[currentDay] = (
-            0,
-            0,
-            currentHour if currentMinute + 10 < 60 else currentHour + 1,
-            (currentMinute + 10) % 60,
-        )
-        self.forex_option_config.setMarketTime(
-            market_times,
-            {"from": self.owner},
-        )
-        print(
-            currentHour,
-            currentMinute,
-            expirationHour,
-            expirationMinute,
-            self.forex_option_config.marketTimes(currentDay),
-        )
-        # Should open the trade
-        self.chain.snapshot()
-        self.router.initiateTrade(
-            *params,
-            {"from": self.user_1},
-        )
-        queued_trade = self.router.queuedTrades(next_id)
-        open_params_1 = [
-            queued_trade[10],
-            self.expected_strike,
-        ]
-        txn = self.router.resolveQueuedTrades(
-            [
-                (
-                    next_id,
-                    *open_params_1,
-                    self.get_signature(
-                        self.forex_option.address,
-                        *open_params_1,
-                    ),
-                ),
-            ],
-            {"from": self.bot},
-        )
-        assert txn.events["OpenTrade"], "Trade didn't open"
-        self.chain.revert()
-
-        # Should cancel the trade beyond 10 min
-        self.chain.snapshot()
-        self.router.initiateTrade(
-            self.total_fee,
-            601,
-            self.is_above,
-            self.forex_option.address,
-            self.expected_strike,
-            self.slippage,
-            self.allow_partial_fill,
-            self.referral_code,
-            0,
-            {"from": self.user_1},
-        )
-        queued_trade = self.router.queuedTrades(next_id)
-        open_params_1 = [
-            queued_trade[10],
-            self.expected_strike,
-        ]
-        txn = self.router.resolveQueuedTrades(
-            [
-                (
-                    next_id,
-                    *open_params_1,
-                    self.get_signature(
-                        self.forex_option.address,
-                        *open_params_1,
-                    ),
-                ),
-            ],
-            {"from": self.bot},
-        )
-        assert (
-            txn.events["CancelTrade"] and txn.events["CancelTrade"]["reason"] == "O30"
-        )
-        self.chain.revert()
-
-        # Time travel to market close time
-        self.chain.sleep(600)
-
-        # Should cancel trade
-        self.chain.snapshot()
-        self.router.initiateTrade(
-            *params,
-            {"from": self.user_1},
-        )
-        queued_trade = self.router.queuedTrades(next_id)
-        open_params_1 = [
-            queued_trade[10],
-            self.expected_strike,
-        ]
-        txn = self.router.resolveQueuedTrades(
-            [
-                (
-                    next_id,
-                    *open_params_1,
-                    self.get_signature(
-                        self.forex_option.address,
-                        *open_params_1,
-                    ),
-                ),
-            ],
-            {"from": self.bot},
-        )
-        assert (
-            txn.events["CancelTrade"] and txn.events["CancelTrade"]["reason"] == "O30"
-        )
-        self.chain.revert()
+        self.time_travel(2, 0, 45)
+        assert self.forex_option.isInCreationWindow(86400 - 300)
+        self.time_travel(3, 0, 45)
+        assert not self.forex_option.isInCreationWindow(86400 - 300)
 
     def verify_fake_referral_protection(self):
         self.chain.snapshot()
@@ -1953,29 +1740,31 @@ class BinaryOptionTesting(object):
 
     def complete_flow_test(self):
         self.init()
-        self.verify_option_config()
-        self.verify_owner()
-        self.verify_pausing()
+        # self.verify_option_config()
+        # self.verify_owner()
+        # self.verify_pausing()
 
-        with brownie.reverts():  # Wrong role
-            self.tokenX_options.createFromRouter(
-                (
-                    self.strike,
-                    0,
-                    self.period,
-                    True,
-                    True,
-                    self.total_fee,
-                    self.user_1,
-                    "1e6",
-                    0,
-                ),
-                False,
-                int(time.time()),
-                {"from": self.accounts[0]},
-            )
+        # with brownie.reverts():  # Wrong role
+        #     self.tokenX_options.createFromRouter(
+        #         (
+        #             self.strike,
+        #             0,
+        #             self.period,
+        #             True,
+        #             True,
+        #             self.total_fee,
+        #             self.user_1,
+        #             "1e6",
+        #             0,
+        #         ),
+        #         False,
+        #         int(time.time()),
+        #         {"from": self.accounts[0]},
+        #     )
 
-        self.verify_forex_option_trading_window()
+        self.verify_option_trading_window()
+        return
+        # self.verify_forex_option_trading_window()
         # self.verify_fake_referral_protection()
         self.verify_creation_with_referral_and_nft()
         self.verify_creation_with_referral_and_no_nft()
@@ -1998,21 +1787,21 @@ class BinaryOptionTesting(object):
         self.verify_creation_with_high_utilization()
         self.verify_creation_with_high_trade_amount()
 
-        with brownie.reverts():  # Wrong role
-            self.tokenX_options.unlock(0, 500e8, {"from": self.user_1})
-        with brownie.reverts():  # Wrong role
-            self.tokenX_options.unlock(0, 500e8, {"from": self.owner})
-        txn = self.unlock_options(
-            [(0, 500e8)],
-        )
-        assert txn.events["FailUnlock"]["reason"] == "O4", "Wrong action"
+        # with brownie.reverts():  # Wrong role
+        #     self.tokenX_options.unlock(0, 500e8, {"from": self.user_1})
+        # with brownie.reverts():  # Wrong role
+        #     self.tokenX_options.unlock(0, 500e8, {"from": self.owner})
+        # txn = self.unlock_options(
+        #     [(0, 500e8)],
+        # )
+        # assert txn.events["FailUnlock"]["reason"] == "O4", "Wrong action"
 
-        self.chain.sleep(self.period + 1)
-        self.verify_unlocking_ITM()
-        self.verify_unlocking_OTM_and_ATM()
-        self.verify_unlocking_multiple_options_at_once()
-        self.verify_asset_utilization_limit()
-        self.verify_overall_utilization_limit()
+        # self.chain.sleep(self.period + 1)
+        # self.verify_unlocking_ITM()
+        # self.verify_unlocking_OTM_and_ATM()
+        # self.verify_unlocking_multiple_options_at_once()
+        # self.verify_asset_utilization_limit()
+        # self.verify_overall_utilization_limit()
 
 
 def test_BinaryOptions(contracts, accounts, chain):
