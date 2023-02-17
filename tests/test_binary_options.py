@@ -42,6 +42,7 @@ class BinaryOptionTesting(object):
         publisher,
         ibfr_contract,
         settlement_fee_disbursal,
+        market_setter,
     ):
         self.bfr = ibfr_contract
         self.settlement_fee_disbursal = settlement_fee_disbursal
@@ -81,6 +82,7 @@ class BinaryOptionTesting(object):
         self.trader_id = 0
         self.strike = int(400e8)
         self.referral_contract = referral_contract
+        self.market_setter = market_setter
 
     def init(self):
         with brownie.reverts("O27"):
@@ -301,146 +303,85 @@ class BinaryOptionTesting(object):
 
         # Only the options config owner can set the market time
         with brownie.reverts("Ownable: caller is not the owner"):
-            self.options_config.setMarketTime(
+            self.options_config.setMarketSetter(
+                self.market_setter,
+                {"from": self.user_1},
+            )
+            self.market_setter.setMarketTime(
                 market_times,
                 {"from": self.user_1},
             )
 
         # Case 1 Closed for an hour in between : <------(closed)---->
-        self.forex_option_config.setMarketTime(
+        self.options_config.setMarketSetter(
+            self.market_setter,
+            {"from": self.owner},
+        )
+        self.market_setter.setMarketTime(
             market_times,
             {"from": self.owner},
         )
         # Case a : Current Window is in the left  <---(current)---(closed)---->
         self.time_travel(1, 5, 00)
-        assert self.forex_option.isInCreationWindow(FIVE_MINUTES)
-        assert self.forex_option.isInCreationWindow(FIVE_HOURS)
-        assert not self.forex_option.isInCreationWindow(
+        assert self.market_setter.isInCreationWindow(FIVE_MINUTES)
+        assert self.market_setter.isInCreationWindow(FIVE_HOURS)
+        assert not self.market_setter.isInCreationWindow(
             self.period
         )  # Shouldn't allow inter day in this case
 
         # # Case b : Current Window is partially/fully overlapping  <------(clos(ed)current)-->
-        assert not self.forex_option.isInCreationWindow(17 * 3600 + FIVE_MINUTES)
+        assert not self.market_setter.isInCreationWindow(17 * 3600 + FIVE_MINUTES)
 
         # Case c : Current Window is in the right  <------(closed)--(current)-->
         self.time_travel(1, 23, 00)
-        assert self.forex_option.isInCreationWindow(FIVE_MINUTES)
-        assert not self.forex_option.isInCreationWindow(
+        self.chain.sleep(5)
+        assert self.market_setter.isInCreationWindow(FIVE_MINUTES)
+        assert not self.market_setter.isInCreationWindow(
             self.period
         )  # Goes into next day's close window
-        assert self.forex_option.isInCreationWindow(
+        assert self.market_setter.isInCreationWindow(
             FIVE_HOURS
         )  # Inter day trade when its in the open window
 
         # Case 2 Closed all day : <(closed)>
         self.time_travel(6, 0, 00)
-        assert not self.forex_option.isInCreationWindow(FIVE_MINUTES)
+        assert not self.market_setter.isInCreationWindow(FIVE_MINUTES)
 
         # Case 3 Closed in starting hours : <(closed)---------->
         self.time_travel(0, 0, 00)
-        assert not self.forex_option.isInCreationWindow(FIVE_MINUTES)
+        assert not self.market_setter.isInCreationWindow(FIVE_MINUTES)
         self.time_travel(0, 22, 59)
-        assert not self.forex_option.isInCreationWindow(FIVE_MINUTES)
+        assert not self.market_setter.isInCreationWindow(FIVE_MINUTES)
         self.time_travel(0, 23, 00)
-        assert self.forex_option.isInCreationWindow(FIVE_MINUTES)
-        assert self.forex_option.isInCreationWindow(FIVE_HOURS)  # Inter day
+        assert self.market_setter.isInCreationWindow(FIVE_MINUTES)
+        assert self.market_setter.isInCreationWindow(FIVE_HOURS)  # Inter day
 
         # Case 4 Closed in the end hours : <----------(closed)>
-        self.forex_option_config.setMarketTime(
+        self.market_setter.setMarketTime(
             market_times_1,
             {"from": self.owner},
         )
         self.time_travel(5, 00, 00)
-        assert self.forex_option.isInCreationWindow(FIVE_MINUTES)
-        assert not self.forex_option.isInCreationWindow(self.period)
+        assert self.market_setter.isInCreationWindow(FIVE_MINUTES)
+        assert not self.market_setter.isInCreationWindow(self.period)
         self.time_travel(5, 21, 00)
-        assert not self.forex_option.isInCreationWindow(FIVE_MINUTES)
-        assert not self.forex_option.isInCreationWindow(FIVE_HOURS)
+        assert not self.market_setter.isInCreationWindow(FIVE_MINUTES)
+        assert not self.market_setter.isInCreationWindow(FIVE_HOURS)
 
         # Case 5 Open all day:<---------->
         self.time_travel(1, 00, 00)
-        assert self.forex_option.isInCreationWindow(FIVE_HOURS)
+        assert self.market_setter.isInCreationWindow(FIVE_HOURS)
 
         self.time_travel(1, 23, 54)
-        assert self.forex_option.isInCreationWindow(FIVE_MINUTES)
-        assert self.forex_option.isInCreationWindow(
+        assert self.market_setter.isInCreationWindow(FIVE_MINUTES)
+        assert self.market_setter.isInCreationWindow(
             301
         )  # Inter day allowed since next day starting hours are open
 
         self.time_travel(2, 0, 45)
-        assert self.forex_option.isInCreationWindow(86400 - FIVE_MINUTES)
+        assert self.market_setter.isInCreationWindow(86400 - FIVE_MINUTES)
         self.time_travel(3, 0, 45)
-        assert not self.forex_option.isInCreationWindow(86400 - FIVE_MINUTES)
-
-    def verify_fake_referral_protection(self):
-        self.chain.snapshot()
-        self.tokenX.transfer(self.user_5, self.total_fee * 3, {"from": self.owner})
-        self.tokenX.approve(
-            self.router.address, self.total_fee * 3, {"from": self.user_5}
-        )
-        self.referral_code = "code1234"
-
-        params = (
-            self.total_fee,
-            self.period,
-            self.is_above,
-            self.tokenX_options.address,
-            self.expected_strike,
-            self.slippage,
-            self.allow_partial_fill,
-            self.referral_code,
-            0,
-        )
-
-        self.referral_contract.registerCode(
-            self.referral_code,
-            {"from": self.user_7},
-        )
-        self.referral_contract.setCodeOwner(
-            self.referral_code,
-            self.referral_contract.address,
-            {"from": self.referrer},
-        )
-        txn = self.router.initiateTrade(
-            *params,
-            {"from": self.user_5},
-        )
-        queue_id = txn.events["InitiateTrade"]["queueId"]
-
-        initial_referrer_tokenX_balance = self.tokenX.balanceOf(
-            self.referral_contract.address
-        )
-        queued_trade = self.router.queuedTrades(queue_id)
-        open_params_1 = [
-            queued_trade[10],
-            396e8,
-        ]
-
-        txn = self.router.resolveQueuedTrades(
-            [
-                (
-                    queue_id,
-                    *open_params_1,
-                    self.get_signature(
-                        self.tokenX_options.address,
-                        *open_params_1,
-                    ),
-                ),
-            ],
-            {"from": self.bot},
-        )
-
-        final_referrer_tokenX_balance = self.tokenX.balanceOf(
-            self.referral_contract.address
-        )
-
-        assert txn.events["OpenTrade"], "Trade not opened"
-        assert txn.events["Create"], "Not created"
-        assert (
-            final_referrer_tokenX_balance - initial_referrer_tokenX_balance == 0
-        ), "Wrong user balance"
-
-        self.chain.revert()
+        assert not self.market_setter.isInCreationWindow(86400 - FIVE_MINUTES)
 
     def verify_creation_with_referral_and_no_nft(self):
         # tier 0
@@ -1741,32 +1682,30 @@ class BinaryOptionTesting(object):
 
     def complete_flow_test(self):
         self.init()
-        # self.verify_option_config()
-        # self.verify_owner()
-        # self.verify_pausing()
+        self.verify_option_config()
+        self.verify_owner()
+        self.verify_pausing()
 
-        # with brownie.reverts():  # Wrong role
-        #     self.tokenX_options.createFromRouter(
-        #         (
-        #             self.strike,
-        #             0,
-        #             self.period,
-        #             True,
-        #             True,
-        #             self.total_fee,
-        #             self.user_1,
-        #             "1e6",
-        #             0,
-        #         ),
-        #         False,
-        #         int(time.time()),
-        #         {"from": self.accounts[0]},
-        #     )
+        with brownie.reverts():  # Wrong role
+            self.tokenX_options.createFromRouter(
+                (
+                    self.strike,
+                    0,
+                    self.period,
+                    True,
+                    True,
+                    self.total_fee,
+                    self.user_1,
+                    "1e6",
+                    0,
+                ),
+                False,
+                int(time.time()),
+                {"from": self.accounts[0]},
+            )
 
         self.verify_option_trading_window()
-        return
-        # self.verify_forex_option_trading_window()
-        # self.verify_fake_referral_protection()
+
         self.verify_creation_with_referral_and_nft()
         self.verify_creation_with_referral_and_no_nft()
         self.verify_creation_with_no_referral_and_no_nft()
@@ -1788,21 +1727,23 @@ class BinaryOptionTesting(object):
         self.verify_creation_with_high_utilization()
         self.verify_creation_with_high_trade_amount()
 
-        # with brownie.reverts():  # Wrong role
-        #     self.tokenX_options.unlock(0, 500e8, {"from": self.user_1})
-        # with brownie.reverts():  # Wrong role
-        #     self.tokenX_options.unlock(0, 500e8, {"from": self.owner})
-        # txn = self.unlock_options(
-        #     [(0, 500e8)],
-        # )
-        # assert txn.events["FailUnlock"]["reason"] == "O4", "Wrong action"
+        with brownie.reverts():  # Wrong role
+            self.tokenX_options.unlock(0, 500e8, 0, 0, {"from": self.user_1})
+        with brownie.reverts():  # Wrong role
+            self.tokenX_options.unlock(0, 500e8, 0, 0, {"from": self.owner})
+        txn = self.unlock_options(
+            [(0, 500e8)],
+        )
+        assert (
+            txn.events["FailUnlock"]["reason"] == "Router: Wrong closing time"
+        ), "Wrong action"
 
-        # self.chain.sleep(self.period + 1)
-        # self.verify_unlocking_ITM()
-        # self.verify_unlocking_OTM_and_ATM()
-        # self.verify_unlocking_multiple_options_at_once()
-        # self.verify_asset_utilization_limit()
-        # self.verify_overall_utilization_limit()
+        self.chain.sleep(self.period + 1)
+        self.verify_unlocking_ITM()
+        self.verify_unlocking_OTM_and_ATM()
+        self.verify_unlocking_multiple_options_at_once()
+        self.verify_asset_utilization_limit()
+        self.verify_overall_utilization_limit()
 
 
 def test_BinaryOptions(contracts, accounts, chain):
@@ -1821,6 +1762,7 @@ def test_BinaryOptions(contracts, accounts, chain):
     binary_european_options_atm_3 = contracts["binary_european_options_atm_3"]
     referral_contract = contracts["referral_contract"]
     publisher = contracts["publisher"]
+    market_setter = contracts["market_setter"]
 
     settlement_fee_disbursal = contracts["settlement_fee_disbursal"]
 
@@ -1851,5 +1793,6 @@ def test_BinaryOptions(contracts, accounts, chain):
         publisher,
         ibfr_contract,
         settlement_fee_disbursal,
+        market_setter,
     )
     option.complete_flow_test()

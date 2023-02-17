@@ -36,6 +36,7 @@ def contracts(
     OptionMath,
     ABDKMath64x64,
     Whitelist,
+    MarketSetter,
 ):
 
     publisher = accounts.add()
@@ -43,6 +44,7 @@ def contracts(
     sfd = accounts.add()
     tokenX = USDC.deploy({"from": accounts[0]})
     whitelist = Whitelist.deploy({"from": accounts[0]})
+    marketSetter = MarketSetter.deploy({"from": accounts[0]})
     binary_pool_atm = BufferBinaryPool.deploy(
         tokenX.address, 600, {"from": accounts[0]}
     )
@@ -248,4 +250,5 @@ def contracts(
         "bfr_binary_european_options_atm": bfr_binary_european_options_atm,
         "publisher": publisher,
         "settlement_fee_disbursal": sfd,
+        "market_setter": marketSetter,
     }

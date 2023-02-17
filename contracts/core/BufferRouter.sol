@@ -247,6 +247,9 @@ contract BufferRouter is AccessControl, IBufferRouter {
             if (expiration != params.expiryTimestamp) {
                 emit FailUnlock(params.optionId, "Router: Wrong price");
                 continue;
+            } else if (expiration > block.timestamp) {
+                emit FailUnlock(params.optionId, "Router: Wrong closing time");
+                continue;
             }
 
             // Silently fail if the signature doesn't match
