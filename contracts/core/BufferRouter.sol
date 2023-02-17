@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-pragma solidity 0.8.4;
+pragma solidity 0.8.16;
 
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
@@ -262,7 +262,8 @@ contract BufferRouter is AccessControl, IBufferRouter {
                 optionsContract.unlock(
                     params.optionId,
                     params.priceAtExpiry,
-                    expiration
+                    expiration,
+                    0
                 )
             {} catch Error(string memory reason) {
                 emit FailUnlock(params.optionId, reason);
@@ -287,10 +288,11 @@ contract BufferRouter is AccessControl, IBufferRouter {
                 tradeToClose.targetContract
             );
 
-            bool isSignerVerifed = _validateSigner(
+            bool isSignerVerifed = _validateSignerWithIv(
                 tradeToClose.closingTime,
                 optionsContract.assetPair(),
                 params.closingPrice,
+                params.iv,
                 params.signature
             );
 
@@ -307,7 +309,8 @@ contract BufferRouter is AccessControl, IBufferRouter {
                 optionsContract.unlock(
                     tradeToClose.optionId,
                     params.closingPrice,
-                    tradeToClose.closingTime
+                    tradeToClose.closingTime,
+                    params.iv
                 )
             {} catch Error(string memory reason) {
                 emit FailUnlock(tradeToClose.optionId, reason);
@@ -351,6 +354,28 @@ contract BufferRouter is AccessControl, IBufferRouter {
     ) internal view returns (bool) {
         bytes32 digest = ECDSA.toEthSignedMessageHash(
             keccak256(abi.encodePacked(assetPair, timestamp, price))
+        );
+        (address recoveredSigner, ECDSA.RecoverError error) = ECDSA.tryRecover(
+            digest,
+            signature
+        );
+
+        if (error == ECDSA.RecoverError.NoError) {
+            return recoveredSigner == publisher;
+        } else {
+            return false;
+        }
+    }
+
+    function _validateSignerWithIv(
+        uint256 timestamp,
+        string memory assetPair,
+        uint256 price,
+        uint256 iv,
+        bytes memory signature
+    ) internal view returns (bool) {
+        bytes32 digest = ECDSA.toEthSignedMessageHash(
+            keccak256(abi.encodePacked(assetPair, timestamp, price, iv))
         );
         (address recoveredSigner, ECDSA.RecoverError error) = ECDSA.tryRecover(
             digest,

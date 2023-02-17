@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-pragma solidity 0.8.4;
+pragma solidity 0.8.16;
 
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
@@ -163,11 +163,11 @@ contract BufferBinaryOptions is
     function unlock(
         uint256 optionID,
         uint256 closingPrice,
-        uint256 closingTime
+        uint256 closingTime,
+        uint256 iv
     ) external override onlyRole(ROUTER_ROLE) {
         require(_exists(optionID), "O10");
         Option storage option = options[optionID];
-        require(option.expiration <= block.timestamp, "O4");
         require(option.state == State.Active, "O5");
 
         if (
@@ -175,7 +175,7 @@ contract BufferBinaryOptions is
             (!option.isAbove && closingPrice < option.strike) ||
             option.expiration > closingTime
         ) {
-            _exercise(optionID, closingPrice, closingTime);
+            _exercise(optionID, closingPrice, closingTime, iv);
         } else {
             option.state = State.Expired;
             pool.unlock(optionID);
@@ -252,30 +252,96 @@ contract BufferBinaryOptions is
         uint256 currentDay = ((currentTime / 86400) + 4) % 7;
         uint256 expirationDay = (((currentTime + period) / 86400) + 4) % 7;
 
-        if (currentDay == expirationDay) {
-            uint256 currentHour = (currentTime / 3600) % 24;
-            uint256 currentMinute = (currentTime % 3600) / 60;
-            uint256 expirationHour = ((currentTime + period) / 3600) % 24;
-            uint256 expirationMinute = ((currentTime + period) % 3600) / 60;
-            (
-                uint256 startHour,
-                uint256 startMinute,
-                uint256 endHour,
-                uint256 endMinute
-            ) = config.marketTimes(uint8(currentDay));
-
+        uint256 currentHour = (currentTime / 3600) % 24;
+        uint256 currentMinute = (currentTime % 3600) / 60;
+        uint256 expirationHour = ((currentTime + period) / 3600) % 24;
+        uint256 expirationMinute = ((currentTime + period) % 3600) / 60;
+        (
+            uint256 startHour,
+            uint256 startMinute,
+            uint256 endHour,
+            uint256 endMinute
+        ) = config.marketTimes(uint8(currentDay));
+        if (
+            currentHour == startHour && startHour == endHour && startHour == 0
+        ) {
             if (
-                (currentHour > startHour ||
-                    (currentHour == startHour &&
-                        currentMinute >= startMinute)) &&
-                (currentHour < endHour ||
-                    (currentHour == endHour && currentMinute < endMinute)) &&
-                (expirationHour < endHour ||
-                    (expirationHour == endHour && expirationMinute < endMinute))
+                isInLeftWindow(
+                    currentHour,
+                    currentMinute,
+                    expirationHour,
+                    expirationMinute
+                )
             ) {
                 return true;
+            } else {
+                (startHour, startMinute, endHour, endMinute) = config
+                    .marketTimes(uint8(expirationDay));
+                if (endHour == endMinute && endMinute == 0) {
+                    return true;
+                } else if (
+                    isInLeftWindow(
+                        expirationHour,
+                        expirationMinute,
+                        startHour,
+                        startMinute
+                    )
+                ) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        if (
+            isInLeftWindow(
+                currentHour,
+                currentMinute,
+                startHour,
+                startMinute
+            ) &&
+            isInLeftWindow(
+                expirationHour,
+                expirationMinute,
+                startHour,
+                startMinute
+            ) &&
+            isInLeftWindow(
+                currentHour,
+                currentMinute,
+                expirationHour,
+                expirationMinute
+            )
+        ) {
+            return true;
+        } else if (
+            isInRightWindow(currentHour, currentMinute, endHour, endMinute)
+        ) {
+            if (
+                isInLeftWindow(
+                    currentHour,
+                    currentMinute,
+                    expirationHour,
+                    expirationMinute
+                )
+            ) {
+                return true;
+            } else {
+                (endHour, endMinute, , ) = config.marketTimes(
+                    uint8(expirationDay)
+                );
+                if (
+                    isInLeftWindow(
+                        expirationHour,
+                        expirationMinute,
+                        endHour,
+                        endMinute
+                    )
+                ) {
+                    return true;
+                }
             }
         }
+
         return false;
     }
 
@@ -294,7 +360,8 @@ contract BufferBinaryOptions is
         require(period <= config.maxPeriod(), "O25");
         require(totalFee >= config.minFee(), "O35");
         require(
-            IWhitelist(config.whitelistStorage()).isWhitelist(account),
+            config.whitelistStorage() == address(0) ||
+                IWhitelist(config.whitelistStorage()).isWhitelist(account),
             "O36"
         );
     }
@@ -347,7 +414,7 @@ contract BufferBinaryOptions is
     {
         require(!isPaused, "O33");
         require(
-            assetCategory != AssetCategory.Forex ||
+            (assetCategory == AssetCategory.Crypto) ||
                 isInCreationWindow(optionParams.period),
             "O30"
         );
@@ -415,7 +482,7 @@ contract BufferBinaryOptions is
     }
 
     /************************************************
-     *  INTERNAL OPTION UTILITY FUNCTIONS
+     * OPTION UTILITY FUNCTIONS
      ***********************************************/
 
     /**
@@ -473,7 +540,8 @@ contract BufferBinaryOptions is
     function _exercise(
         uint256 optionID,
         uint256 closingPrice,
-        uint256 closingTime
+        uint256 closingTime,
+        uint256 iv
     ) internal returns (uint256 profit) {
         Option storage option = options[optionID];
         address user = ownerOf(optionID);
@@ -482,7 +550,7 @@ contract BufferBinaryOptions is
             profit =
                 (option.lockedAmount *
                     OptionMath.blackScholesPriceBinary(
-                        config.impliedProbability(),
+                        iv,
                         option.strike,
                         closingPrice,
                         option.expiration - closingTime,
@@ -597,5 +665,23 @@ contract BufferBinaryOptions is
         settlementFeePercentage =
             settlementFeePercentage -
             (stepSize * maxStep);
+    }
+
+    function isInLeftWindow(
+        uint256 h1,
+        uint256 m1,
+        uint256 h2,
+        uint256 m2
+    ) public view returns (bool) {
+        return (h1 < h2 || (h1 == h2 && m1 < m2));
+    }
+
+    function isInRightWindow(
+        uint256 h1,
+        uint256 m1,
+        uint256 h2,
+        uint256 m2
+    ) public view returns (bool) {
+        return (h1 > h2 || (h1 == h2 && m1 > m2));
     }
 }

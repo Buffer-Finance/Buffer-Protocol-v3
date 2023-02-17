@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
-pragma solidity 0.8.4;
+pragma solidity 0.8.16;
 
 interface IKeeperPayment {
     function distributeForOpen(
@@ -63,6 +63,7 @@ interface IBufferRouter {
     struct QueuedCloseTradeParams {
         uint256 closeId;
         uint256 closingPrice;
+        uint256 iv;
         bytes signature;
     }
     struct CloseTradeParams {
@@ -230,7 +231,8 @@ interface IBufferBinaryOptions {
     function unlock(
         uint256 optionID,
         uint256 priceAtExpiration,
-        uint256 closingTime
+        uint256 closingTime,
+        uint256 iv
     ) external;
 }
 
@@ -295,7 +297,6 @@ interface IOptionsConfig {
     event UpdateSettlementFeeDisbursalContract(address value);
     event UpdatetraderNFTContract(address value);
     event UpdateAssetUtilizationLimit(uint16 value);
-    event UpdateImpliedProbability(uint256 value);
     event UpdateMinFee(uint256 value);
     event UpdateWhitelistStorage(address value);
 
@@ -316,8 +317,6 @@ interface IOptionsConfig {
     function assetUtilizationLimit() external view returns (uint16);
 
     function overallPoolUtilizationLimit() external view returns (uint16);
-
-    function impliedProbability() external view returns (uint256);
 
     function whitelistStorage() external view returns (address);
 
