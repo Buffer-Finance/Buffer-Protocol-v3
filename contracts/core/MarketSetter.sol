@@ -76,23 +76,13 @@ contract MarketSetter is Ownable, IMarketSetter {
             ) {
                 return true;
             } else {
-                (startHour, startMinute, endHour, endMinute) = getMarketTimes(
-                    uint8(expirationDay)
-                );
-                if (endHour == endMinute && endMinute == 0) {
-                    return true;
-                } else if (
-                    isInLeftWindow(
+                return
+                    isInNextDayWindow(
+                        expirationDay,
                         expirationHour,
-                        expirationMinute,
-                        startHour,
-                        startMinute
-                    )
-                ) {
-                    return true;
-                }
+                        expirationMinute
+                    );
             }
-            return false;
         }
         if (
             isInLeftWindow(
@@ -128,21 +118,43 @@ contract MarketSetter is Ownable, IMarketSetter {
             ) {
                 return true;
             } else {
-                (endHour, endMinute, , ) = getMarketTimes(uint8(expirationDay));
-                if (
-                    isInLeftWindow(
+                return
+                    isInNextDayWindow(
+                        expirationDay,
                         expirationHour,
-                        expirationMinute,
-                        endHour,
-                        endMinute
-                    )
-                ) {
-                    return true;
-                }
+                        expirationMinute
+                    );
             }
         }
 
         return false;
+    }
+
+    function isInNextDayWindow(
+        uint256 expirationDay,
+        uint256 expirationHour,
+        uint256 expirationMinute
+    ) public view returns (bool) {
+        (
+            uint8 startHour,
+            uint8 startMinute,
+            uint8 endHour,
+            uint8 endMinute
+        ) = getMarketTimes(uint8(expirationDay));
+        if (endHour == endMinute && endMinute == 0) {
+            return true;
+        } else if (
+            isInLeftWindow(
+                expirationHour,
+                expirationMinute,
+                startHour,
+                startMinute
+            )
+        ) {
+            return true;
+        } else {
+            return false;
+        }
     }
 
     function isInLeftWindow(
@@ -150,7 +162,7 @@ contract MarketSetter is Ownable, IMarketSetter {
         uint256 m1,
         uint256 h2,
         uint256 m2
-    ) public view returns (bool) {
+    ) public pure returns (bool) {
         return (h1 < h2 || (h1 == h2 && m1 < m2));
     }
 
@@ -159,7 +171,7 @@ contract MarketSetter is Ownable, IMarketSetter {
         uint256 m1,
         uint256 h2,
         uint256 m2
-    ) public view returns (bool) {
+    ) public pure returns (bool) {
         return (h1 > h2 || (h1 == h2 && m1 > m2));
     }
 }

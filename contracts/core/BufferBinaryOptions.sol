@@ -457,7 +457,7 @@ contract BufferBinaryOptions is
                         true,
                         option.isAbove
                     )) /
-                1e10; // TODO: Check the factor
+                1e8;
         } else {
             profit = option.lockedAmount;
         }

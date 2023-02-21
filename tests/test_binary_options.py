@@ -251,6 +251,23 @@ class BinaryOptionTesting(object):
 
         return to_32byte_hex(signed_message.signature)
 
+    def get_signature_2(self, token, timestamp, price, iv, publisher=None):
+        # timestamp = 1667208839
+        # token = "0x32A49a15F8eE598C1EeDc21138DEb23b391f425b"
+        # price = int(83e8)
+        web3 = brownie.network.web3
+        key = self.publisher.private_key if not publisher else publisher.private_key
+        msg_hash = web3.solidityKeccak(
+            ["string", "uint256", "uint256", "uint256"],
+            [BufferBinaryOptions.at(token).assetPair(), timestamp, int(price), int(iv)],
+        )
+        signed_message = Account.sign_message(encode_defunct(msg_hash), key)
+
+        def to_32byte_hex(val):
+            return web3.toHex(web3.toBytes(val).rjust(32, b"\0"))
+
+        return to_32byte_hex(signed_message.signature)
+
     def time_travel(self, day_of_week, hour, to_minute):
 
         # Get the current block timestamp
@@ -496,7 +513,6 @@ class BinaryOptionTesting(object):
             self.referral_code,
             0,
         )
-
         self.router.initiateTrade(
             *params,
             {"from": self.user_1},
@@ -1680,6 +1696,97 @@ class BinaryOptionTesting(object):
 
         self.chain.revert()
 
+    def close_anytime(self, closing_data):
+        params = []
+        for data in closing_data:
+            close_data = self.router.tradesToClose(data[0])
+            close_params = (
+                self.tokenX_options.address,
+                close_data[3],
+                data[1],
+                data[2],
+            )
+            params.append(
+                (
+                    *data,
+                    self.get_signature_2(
+                        *close_params,
+                    ),
+                )
+            )
+        print("params", params)
+        txn = self.router.closeAnytime(
+            params,
+            {"from": self.bot},
+        )
+        return txn
+
+    def verify_close_anytime(self):
+        self.chain.snapshot()
+        with brownie.reverts("Router: Only option owner can close"):
+            self.router.initiateClose(
+                0, self.tokenX_options.address, {"from": self.user_5}
+            )
+        with brownie.reverts("Router: Only option owner can close"):
+            self.router.initiateClose(
+                0, self.tokenX_options.address, {"from": self.owner}
+            )
+        txn = self.router.initiateClose(
+            0, self.tokenX_options.address, {"from": self.user_1}
+        )
+        self.router.initiateClose(1, self.tokenX_options.address, {"from": self.user_1})
+        assert txn.events["InitiateClose"]["optionId"] == 0, "Wrong id"
+        assert txn.events["InitiateClose"]["closeId"] == 0, "Wrong id"
+
+        # Anytime close ITM
+        self.chain.snapshot()
+        initial_user_tokenX_balance = self.tokenX.balanceOf(self.user_1)
+        initial_pool_tokenX_balance = self.tokenX.balanceOf(self.generic_pool.address)
+        initial_locked_amount = self.tokenX_options.totalLockedAmount()
+
+        txn = self.close_anytime([(0, 396e8 * 1.005, 12000)])
+
+        final_user_tokenX_balance = self.tokenX.balanceOf(self.user_1)
+        final_pool_tokenX_balance = self.tokenX.balanceOf(self.generic_pool.address)
+        final_locked_amount = self.tokenX_options.totalLockedAmount()
+
+        assert txn.events["Exercise"]["profit"] < 1700000, "Wrong id"
+        assert (
+            final_user_tokenX_balance - initial_user_tokenX_balance
+            == txn.events["Exercise"]["profit"]
+        ), "Wrong user balance"
+        assert (
+            initial_pool_tokenX_balance - final_pool_tokenX_balance
+            == txn.events["Exercise"]["profit"]
+        ), "Wrong pool balance"
+        assert self.tokenX_options.options(0)[0] == 2, "Wrong state"
+        assert initial_locked_amount - final_locked_amount == 1700000
+
+        self.chain.revert()
+
+        # Anytime close OTM
+        self.chain.snapshot()
+
+        txn = self.close_anytime([(0, 396e8 * 0.99, 12000)])
+        assert txn.events["Exercise"]["profit"] < 1700000, "Wrong id"
+
+        txn = self.close_anytime([(0, 396e8 * 1.005, 12000)])
+        assert txn.events["FailUnlock"]["reason"] == "O10"
+        self.chain.revert()
+
+        # Anytime close multiple at once
+        self.chain.snapshot()
+
+        txn = self.close_anytime(
+            [
+                (0, int(396e8 * 0.99), 12000),
+                (1, int(396e8 * 1.005), 12000),
+            ]
+        )
+        assert txn.events["Exercise"][0]["profit"] < 1700000, "Wrong profit"
+        assert txn.events["Exercise"][1]["profit"] < 1700000, "Wrong profit"
+        self.chain.revert()
+
     def complete_flow_test(self):
         self.init()
         self.verify_option_config()
@@ -1711,6 +1818,8 @@ class BinaryOptionTesting(object):
         self.verify_creation_with_no_referral_and_no_nft()
         self.verify_creation_with_no_referral_and_nft()
         self.verify_referrals()
+
+        self.verify_close_anytime()
 
         self.chain.sleep(10 * 60 + 1)
         self.generic_pool.withdraw(10e6, {"from": self.owner})

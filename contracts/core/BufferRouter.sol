@@ -136,7 +136,7 @@ contract BufferRouter is AccessControl, IBufferRouter {
         );
         require(
             optionsContract.ownerOf(optionId) == msg.sender,
-            "Only owner can close"
+            "Router: Only option owner can close"
         );
 
         closeId = nextCloseId;
@@ -152,7 +152,7 @@ contract BufferRouter is AccessControl, IBufferRouter {
 
         tradesToClose[closeId] = tradeToClose;
 
-        emit InitiateClose(msg.sender, optionId, block.timestamp);
+        emit InitiateClose(msg.sender, closeId, optionId);
     }
 
     /**

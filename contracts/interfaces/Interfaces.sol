@@ -76,7 +76,7 @@ interface IBufferRouter {
     event OpenTrade(address indexed account, uint256 queueId, uint256 optionId);
     event InitiateClose(
         address indexed account,
-        uint256 closeIdId,
+        uint256 closeId,
         uint256 optionId
     );
     event CancelTrade(address indexed account, uint256 queueId, string reason);
