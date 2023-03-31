@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-pragma solidity 0.8.4;
+pragma solidity 0.8.16;
 
 interface IRewardTracker {
     function depositBalances(address _account, address _depositToken)

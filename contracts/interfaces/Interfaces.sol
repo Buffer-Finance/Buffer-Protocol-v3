@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
-pragma solidity 0.8.4;
+pragma solidity 0.8.16;
 
 interface IKeeperPayment {
     function distributeForOpen(
@@ -63,6 +63,7 @@ interface IBufferRouter {
     struct QueuedCloseTradeParams {
         uint256 closeId;
         uint256 closingPrice;
+        uint256 iv;
         bytes signature;
     }
     struct CloseTradeParams {
@@ -75,7 +76,7 @@ interface IBufferRouter {
     event OpenTrade(address indexed account, uint256 queueId, uint256 optionId);
     event InitiateClose(
         address indexed account,
-        uint256 closeIdId,
+        uint256 closeId,
         uint256 optionId
     );
     event CancelTrade(address indexed account, uint256 queueId, string reason);
@@ -230,7 +231,8 @@ interface IBufferBinaryOptions {
     function unlock(
         uint256 optionID,
         uint256 priceAtExpiration,
-        uint256 closingTime
+        uint256 closingTime,
+        uint256 iv
     ) external;
 }
 
@@ -279,14 +281,7 @@ interface ILiquidityPool {
 }
 
 interface IOptionsConfig {
-    struct Window {
-        uint8 startHour;
-        uint8 startMinute;
-        uint8 endHour;
-        uint8 endMinute;
-    }
-
-    event UpdateMarketTime();
+    event UpdateMarketSetter(address value);
     event UpdateMaxPeriod(uint32 value);
     event UpdateMinPeriod(uint32 value);
 
@@ -295,7 +290,6 @@ interface IOptionsConfig {
     event UpdateSettlementFeeDisbursalContract(address value);
     event UpdatetraderNFTContract(address value);
     event UpdateAssetUtilizationLimit(uint16 value);
-    event UpdateImpliedProbability(uint256 value);
     event UpdateMinFee(uint256 value);
     event UpdateWhitelistStorage(address value);
 
@@ -303,23 +297,13 @@ interface IOptionsConfig {
 
     function settlementFeeDisbursalContract() external view returns (address);
 
-    function marketTimes(uint8)
-        external
-        view
-        returns (
-            uint8,
-            uint8,
-            uint8,
-            uint8
-        );
-
     function assetUtilizationLimit() external view returns (uint16);
 
     function overallPoolUtilizationLimit() external view returns (uint16);
 
-    function impliedProbability() external view returns (uint256);
-
     function whitelistStorage() external view returns (address);
+
+    function marketSetter() external view returns (address);
 
     function maxPeriod() external view returns (uint32);
 
@@ -328,6 +312,19 @@ interface IOptionsConfig {
     function minFee() external view returns (uint256);
 
     function optionFeePerTxnLimitPercent() external view returns (uint16);
+}
+
+interface IMarketSetter {
+    struct Window {
+        uint8 startHour;
+        uint8 startMinute;
+        uint8 endHour;
+        uint8 endMinute;
+    }
+
+    event UpdateMarketTime();
+
+    function isInCreationWindow(uint256 period) external view returns (bool);
 }
 
 interface ITraderNFT {

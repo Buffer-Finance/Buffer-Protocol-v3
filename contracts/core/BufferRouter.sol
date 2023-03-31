@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-pragma solidity 0.8.4;
+pragma solidity 0.8.16;
 
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
@@ -136,7 +136,7 @@ contract BufferRouter is AccessControl, IBufferRouter {
         );
         require(
             optionsContract.ownerOf(optionId) == msg.sender,
-            "Only owner can close"
+            "Router: Only option owner can close"
         );
 
         closeId = nextCloseId;
@@ -152,7 +152,7 @@ contract BufferRouter is AccessControl, IBufferRouter {
 
         tradesToClose[closeId] = tradeToClose;
 
-        emit InitiateClose(msg.sender, optionId, block.timestamp);
+        emit InitiateClose(msg.sender, closeId, optionId);
     }
 
     /**
@@ -247,6 +247,9 @@ contract BufferRouter is AccessControl, IBufferRouter {
             if (expiration != params.expiryTimestamp) {
                 emit FailUnlock(params.optionId, "Router: Wrong price");
                 continue;
+            } else if (expiration > block.timestamp) {
+                emit FailUnlock(params.optionId, "Router: Wrong closing time");
+                continue;
             }
 
             // Silently fail if the signature doesn't match
@@ -262,7 +265,8 @@ contract BufferRouter is AccessControl, IBufferRouter {
                 optionsContract.unlock(
                     params.optionId,
                     params.priceAtExpiry,
-                    expiration
+                    expiration,
+                    0
                 )
             {} catch Error(string memory reason) {
                 emit FailUnlock(params.optionId, reason);
@@ -287,10 +291,11 @@ contract BufferRouter is AccessControl, IBufferRouter {
                 tradeToClose.targetContract
             );
 
-            bool isSignerVerifed = _validateSigner(
+            bool isSignerVerifed = _validateSignerWithIv(
                 tradeToClose.closingTime,
                 optionsContract.assetPair(),
                 params.closingPrice,
+                params.iv,
                 params.signature
             );
 
@@ -307,7 +312,8 @@ contract BufferRouter is AccessControl, IBufferRouter {
                 optionsContract.unlock(
                     tradeToClose.optionId,
                     params.closingPrice,
-                    tradeToClose.closingTime
+                    tradeToClose.closingTime,
+                    params.iv
                 )
             {} catch Error(string memory reason) {
                 emit FailUnlock(tradeToClose.optionId, reason);
@@ -351,6 +357,28 @@ contract BufferRouter is AccessControl, IBufferRouter {
     ) internal view returns (bool) {
         bytes32 digest = ECDSA.toEthSignedMessageHash(
             keccak256(abi.encodePacked(assetPair, timestamp, price))
+        );
+        (address recoveredSigner, ECDSA.RecoverError error) = ECDSA.tryRecover(
+            digest,
+            signature
+        );
+
+        if (error == ECDSA.RecoverError.NoError) {
+            return recoveredSigner == publisher;
+        } else {
+            return false;
+        }
+    }
+
+    function _validateSignerWithIv(
+        uint256 timestamp,
+        string memory assetPair,
+        uint256 price,
+        uint256 iv,
+        bytes memory signature
+    ) internal view returns (bool) {
+        bytes32 digest = ECDSA.toEthSignedMessageHash(
+            keccak256(abi.encodePacked(assetPair, timestamp, price, iv))
         );
         (address recoveredSigner, ECDSA.RecoverError error) = ECDSA.tryRecover(
             digest,

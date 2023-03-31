@@ -1,4 +1,4 @@
-pragma solidity 0.8.4;
+pragma solidity 0.8.16;
 
 // SPDX-License-Identifier: BUSL-1.1
 
@@ -13,6 +13,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 contract OptionsConfig is Ownable, IOptionsConfig {
     BufferBinaryPool public pool;
 
+    address public override marketSetter;
     address public override settlementFeeDisbursalContract;
     address public override whitelistStorage;
     address public override traderNFTContract;
@@ -20,12 +21,9 @@ contract OptionsConfig is Ownable, IOptionsConfig {
     uint16 public override overallPoolUtilizationLimit = 64e2;
     uint32 public override maxPeriod = 24 hours;
     uint32 public override minPeriod = 5 minutes;
-    uint256 public override impliedProbability;
 
     uint16 public override optionFeePerTxnLimitPercent = 5e2;
     uint256 public override minFee = 1e6;
-
-    mapping(uint8 => Window) public override marketTimes;
 
     constructor(BufferBinaryPool _pool) {
         pool = _pool;
@@ -39,11 +37,6 @@ contract OptionsConfig is Ownable, IOptionsConfig {
     function setMinFee(uint256 value) external onlyOwner {
         minFee = value;
         emit UpdateMinFee(value);
-    }
-
-    function setImpliedProbability(uint256 value) external onlyOwner {
-        impliedProbability = value;
-        emit UpdateImpliedProbability(value);
     }
 
     function setWhitelistStorage(address value) external onlyOwner {
@@ -98,10 +91,8 @@ contract OptionsConfig is Ownable, IOptionsConfig {
         emit UpdateMinPeriod(value);
     }
 
-    function setMarketTime(Window[] memory windows) external onlyOwner {
-        for (uint8 index = 0; index < windows.length; index++) {
-            marketTimes[index] = windows[index];
-        }
-        emit UpdateMarketTime();
+    function setMarketSetter(address value) external onlyOwner {
+        marketSetter = value;
+        emit UpdateMarketSetter(marketSetter);
     }
 }

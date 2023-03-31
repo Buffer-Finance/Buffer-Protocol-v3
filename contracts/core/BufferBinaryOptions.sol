@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-pragma solidity 0.8.4;
+pragma solidity 0.8.16;
 
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
@@ -163,11 +163,11 @@ contract BufferBinaryOptions is
     function unlock(
         uint256 optionID,
         uint256 closingPrice,
-        uint256 closingTime
+        uint256 closingTime,
+        uint256 iv
     ) external override onlyRole(ROUTER_ROLE) {
         require(_exists(optionID), "O10");
         Option storage option = options[optionID];
-        require(option.expiration <= block.timestamp, "O4");
         require(option.state == State.Active, "O5");
 
         if (
@@ -175,7 +175,7 @@ contract BufferBinaryOptions is
             (!option.isAbove && closingPrice < option.strike) ||
             option.expiration > closingTime
         ) {
-            _exercise(optionID, closingPrice, closingTime);
+            _exercise(optionID, closingPrice, closingTime, iv);
         } else {
             option.state = State.Expired;
             pool.unlock(optionID);
@@ -244,42 +244,6 @@ contract BufferBinaryOptions is
     }
 
     /**
-     * @notice Checks if the market is open at the time of option creation and execution.
-     * Used only for forex options
-     */
-    function isInCreationWindow(uint256 period) public view returns (bool) {
-        uint256 currentTime = block.timestamp;
-        uint256 currentDay = ((currentTime / 86400) + 4) % 7;
-        uint256 expirationDay = (((currentTime + period) / 86400) + 4) % 7;
-
-        if (currentDay == expirationDay) {
-            uint256 currentHour = (currentTime / 3600) % 24;
-            uint256 currentMinute = (currentTime % 3600) / 60;
-            uint256 expirationHour = ((currentTime + period) / 3600) % 24;
-            uint256 expirationMinute = ((currentTime + period) % 3600) / 60;
-            (
-                uint256 startHour,
-                uint256 startMinute,
-                uint256 endHour,
-                uint256 endMinute
-            ) = config.marketTimes(uint8(currentDay));
-
-            if (
-                (currentHour > startHour ||
-                    (currentHour == startHour &&
-                        currentMinute >= startMinute)) &&
-                (currentHour < endHour ||
-                    (currentHour == endHour && currentMinute < endMinute)) &&
-                (expirationHour < endHour ||
-                    (expirationHour == endHour && expirationMinute < endMinute))
-            ) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
      * @notice Runs the basic checks for option creation
      */
     function runInitialChecks(
@@ -294,7 +258,8 @@ contract BufferBinaryOptions is
         require(period <= config.maxPeriod(), "O25");
         require(totalFee >= config.minFee(), "O35");
         require(
-            IWhitelist(config.whitelistStorage()).isWhitelist(account),
+            config.whitelistStorage() == address(0) ||
+                IWhitelist(config.whitelistStorage()).isWhitelist(account),
             "O36"
         );
     }
@@ -347,8 +312,10 @@ contract BufferBinaryOptions is
     {
         require(!isPaused, "O33");
         require(
-            assetCategory != AssetCategory.Forex ||
-                isInCreationWindow(optionParams.period),
+            (assetCategory == AssetCategory.Crypto) ||
+                IMarketSetter(config.marketSetter()).isInCreationWindow(
+                    optionParams.period
+                ),
             "O30"
         );
 
@@ -415,7 +382,7 @@ contract BufferBinaryOptions is
     }
 
     /************************************************
-     *  INTERNAL OPTION UTILITY FUNCTIONS
+     * OPTION UTILITY FUNCTIONS
      ***********************************************/
 
     /**
@@ -473,7 +440,8 @@ contract BufferBinaryOptions is
     function _exercise(
         uint256 optionID,
         uint256 closingPrice,
-        uint256 closingTime
+        uint256 closingTime,
+        uint256 iv
     ) internal returns (uint256 profit) {
         Option storage option = options[optionID];
         address user = ownerOf(optionID);
@@ -482,14 +450,14 @@ contract BufferBinaryOptions is
             profit =
                 (option.lockedAmount *
                     OptionMath.blackScholesPriceBinary(
-                        config.impliedProbability(),
+                        iv,
                         option.strike,
                         closingPrice,
                         option.expiration - closingTime,
                         true,
                         option.isAbove
                     )) /
-                1e10; // TODO: Check the factor
+                1e8;
         } else {
             profit = option.lockedAmount;
         }
