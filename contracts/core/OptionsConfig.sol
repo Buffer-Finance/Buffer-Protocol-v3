@@ -18,9 +18,8 @@ contract OptionsConfig is Ownable, IOptionsConfig {
     address public override traderNFTContract;
     uint16 public override assetUtilizationLimit = 10e2;
     uint16 public override overallPoolUtilizationLimit = 64e2;
-    uint32 public override maxPeriod = 24 hours;
-    uint32 public override minPeriod = 5 minutes;
     uint256 public override impliedProbability;
+    mapping(uint32 => bool) public override periodWhitelist;
 
     uint16 public override optionFeePerTxnLimitPercent = 5e2;
     uint256 public override minFee = 1e6;
@@ -76,32 +75,19 @@ contract OptionsConfig is Ownable, IOptionsConfig {
         emit UpdateAssetUtilizationLimit(value);
     }
 
-    function setMaxPeriod(uint32 value) external onlyOwner {
-        require(
-            value <= 1 days,
-            "MaxPeriod should be less than or equal to 1 day"
-        );
-        require(
-            value >= minPeriod,
-            "MaxPeriod needs to be greater than or equal the min period"
-        );
-        maxPeriod = value;
-        emit UpdateMaxPeriod(value);
-    }
-
-    function setMinPeriod(uint32 value) external onlyOwner {
-        require(
-            value >= 1 minutes,
-            "MinPeriod needs to be greater than 1 minute"
-        );
-        minPeriod = value;
-        emit UpdateMinPeriod(value);
-    }
-
     function setMarketTime(Window[] memory windows) external onlyOwner {
         for (uint8 index = 0; index < windows.length; index++) {
             marketTimes[index] = windows[index];
         }
         emit UpdateMarketTime();
     }
+
+    function setAllowedPeriods(uint32[] memory periods, bool[] memory isAllowed) external onlyOwner {
+        require(periods.length == isAllowed.length, "Invalid input");
+        for (uint256 index = 0; index < periods.length; index++) {
+            periodWhitelist[periods[index]] = isAllowed[index];
+            emit UpdateAllowedPeriods(periods[index], isAllowed[index]);
+        }
+    }
+
 }

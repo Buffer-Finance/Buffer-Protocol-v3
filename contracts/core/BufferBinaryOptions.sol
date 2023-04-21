@@ -290,8 +290,7 @@ contract BufferBinaryOptions is
     ) external view override {
         require(!isPaused, "O33");
         require(slippage <= 5e2, "O34"); // 5% is the max slippage a user can use
-        require(period >= config.minPeriod(), "O21");
-        require(period <= config.maxPeriod(), "O25");
+        require(config.periodWhitelist(period), "O37");
         require(totalFee >= config.minFee(), "O35");
         require(
             IWhitelist(config.whitelistStorage()).isWhitelist(account),

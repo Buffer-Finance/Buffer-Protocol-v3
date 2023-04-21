@@ -34,6 +34,7 @@
   "O34": "Wrong slippage",
   "O35": "Fee too low",
   "O36": "Not whitelisted",
+  "O37": "Period not allowed",
   "N1": "Empty splitUnits",
   "N2": "NFT: not owner nor approved",
   "N3": "new token already exists",

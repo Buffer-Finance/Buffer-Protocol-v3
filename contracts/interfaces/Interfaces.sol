@@ -285,7 +285,7 @@ interface IOptionsConfig {
         uint8 endHour;
         uint8 endMinute;
     }
-
+    event UpdateAllowedPeriods(uint32 periodValue, bool isAllowed);
     event UpdateMarketTime();
     event UpdateMaxPeriod(uint32 value);
     event UpdateMinPeriod(uint32 value);
